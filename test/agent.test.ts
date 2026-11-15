@@ -255,7 +255,7 @@ test("agent: history is replayed append-only and verbatim, with the selection an
     assert.deepEqual(assistant.raw, assistant.blocks);
     // The same system prompt and tools every time (cache-friendly).
     assert.ok(llm.requests.every((r) => r.system === first.system));
-    assert.deepEqual(last.tools.map((t) => t.name), ["generate_song", "repaint_section", "get_project_state", "set_section_markers", "revert_to_take"]);
+    assert.deepEqual(last.tools.map((t) => t.name), ["arrangement_history", "generate_song", "repaint_section", "get_project_state", "set_section_markers", "add_sound", "update_sound", "remove_sound", "set_track", "revert_to_take"]);
   } finally {
     await h.stop();
   }

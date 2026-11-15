@@ -20,6 +20,56 @@ point at a part and ask for a change, and only that part changes.
 - **It runs on your laptop.** The music model and speech recognition are local.
   Only the chat model is a hosted API.
 
+## Instrument timeline
+
+After making a song, its timeline appears beneath the waveform. Drag a sound
+from the Sounds panel onto a track or the New track row, or use **Add sound**.
+You can also drop an audio file from your computer; the browser converts formats
+it can decode into WAV. Ask the agent “add a drum sound” to put a drum clip on
+the same timeline immediately.
+
+Drag clips to move them in time or between tracks. Drag the right edge to resize,
+select a clip to change its volume or remove it, and use the speaker button to
+mute a track. Placement snaps to beats by default; hold Alt to place freely or
+turn off the magnet button. **Mix** downloads the song with these clips included;
+**WAV** downloads the original take. The arrangement lives in `timeline.json`
+and `sounds/`, persists across reloads, and is shared by repaints of the same song.
+
+The built-in parts are synthesized loops and one-shots, rendered at the song's
+measured tempo. If beat detection fails, the requested tempo is used. Pitched
+parts hold the home chord until you add chord regions.
+The chat agent and MCP tools can add, move, resize, remove, mute and adjust the
+volume of the same clips you edit manually.
+
+**Undo an arrangement edit.** The timeline toolbar has Undo and Redo; Cmd/Ctrl+Z
+and Cmd/Ctrl+Shift+Z work outside text fields. Clip changes, track settings,
+tempo and chords share a persistent history of up to 100 edits per song.
+Reverting a take changes the recording; arrangement undo changes its layers.
+
+**Set the harmony.** Open **Tempo & chords** to correct BPM and the first
+downbeat, or add major/minor chord regions such as C, Am, F# and Bb. Added
+library parts are rendered at this tempo and pitched parts follow the saved
+regions, using the song key in gaps. Existing clips update too. Imported audio
+and the recording are not retimed. The metronome is for listening only and is
+excluded from Mix exports.
+
+**Audition edits.** Play selection listens to the chosen range; L toggles looping.
+Audition adds configurable context before and after the range. B switches A/B
+without resetting playback; the comparison menu chooses any finished take in
+the same song.
+
+**Edit lyrics.** Edit lyrics opens a source editor with changed-line marks and a
+word-budget meter. Save draft (Cmd/Ctrl+S) writes lyrics.md; unsaved text is kept
+in this browser when switching takes. Select a range and use Regenerate selection
+to make a new take directly. Draft changes outside the selected range are not
+sung until those ranges are regenerated too.
+
+**Refine joins.** Open a verified repaint's details to audition its joins, set
+0–500 ms fades and optionally match the original section's level (limited to
+±6 dB). Apply creates a new take locally without running the model. It reblends
+the existing edited audio; every sample outside the range remains identical.
+The existing take stays available for comparison.
+
 ## Listen
 
 One 45-second song made with the app on a 16 GB Apple-silicon Mac, from two chat
@@ -159,7 +209,8 @@ claude mcp add --transport http song-studio http://127.0.0.1:8787/mcp
 ```
 
 Tools: `list_projects`, `create_project`, `get_project_state`, `generate_song`,
-`repaint_section`, `set_section_markers`, `revert_to_take`, `wait_for_job`. They
+`repaint_section`, `set_section_markers`, `revert_to_take`, `arrangement_history`, `wait_for_job`,
+`add_sound`, `update_sound`, `remove_sound`, `set_track`. They
 are the built-in agent's tools plus a `project_id`, with the same checks. Jobs
 started from outside show up in the web app as they happen.
 
@@ -368,7 +419,8 @@ Before: the 8-line, 60-word take had 22 % of its words heard. After: three takes
 of a 4-line, 25-word song had 84–96 %.
 
 **The agent.** Tools: `generate_song`, `repaint_section`, `get_project_state`,
-`set_section_markers`, `revert_to_take`. The model never gets to guess a time
+`set_section_markers`, `revert_to_take`, `add_sound`, `update_sound`,
+`remove_sound`, `set_track`. The model never gets to guess a time
 range: `repaint_section` must say where its range comes from (the waveform
 selection, a named marker, a section heard in that take, or numbers the user
 typed), and the server rejects a range that does not match the selection,
@@ -400,6 +452,10 @@ POST   /api/projects/:id/generate    {title, stylePrompt, lyrics, bpm, key, dura
 POST   /api/projects/:id/repaint     {takeId, startSec, endSec, lyrics, stylePrompt?, seed?}
 PUT    /api/projects/:id/markers     {markers: [{label, startSec, endSec}]}
 POST   /api/projects/:id/current-take {takeId}
+POST   /api/projects/:id/arrangement/undo or /redo
+PUT    /api/projects/:id/music {bpm, firstBeatSec, chords: [{chord, startSec, endSec}]}
+PUT    /api/projects/:id/lyrics {lyrics}
+POST   /api/projects/:id/takes/:takeId/joins {crossfadeMs, matchLevel}
 PUT    /api/projects/:id/selection {selection: {startSec, endSec} | null}   (the web client sends it live)
 GET    /api/projects/:id/history     the history log
 GET    /api/projects/:id/takes/:takeId/timing     where the words are (null until analysed)
@@ -412,7 +468,7 @@ GET    /api/takes/:id/peaks
 
 ## Tests
 
-`npm test` runs 91 tests in about 11 seconds, all against the mock model server,
+`npm test` runs 105 tests in about 13 seconds, all against the mock model server,
 the scripted LLM and a fake transcriber that "hears" every lyric word (no
 network, no key, no Whisper):
 
@@ -445,11 +501,15 @@ network, no key, no Whisper):
   replay, streaming events, one turn at a time, runaway tool loops, refusals and
   truncated tool calls, interrupted tool calls, chat over HTTP + SSE, heard
   sections in the model's context and as a checked range source.
+- **timeline** (10): synthesized sounds, beat detection, mix rendering, clip
+  persistence across takes, HTTP import and downloads, and chat/MCP control.
+- **editing** (4): persistent arrangement undo/redo, chord and tempo rendering,
+  level matching, draft endpoints and immutable local join refinement.
 - **anthropic** (8): request shape and stream assembly against a local stub of
   the Messages API, history replay, refusals, error messages, missing key.
 
 `npm run test:e2e` drives the built app in headless Chromium through the main
-flow (14 steps) and writes screenshots to `test-results/`. It needs `npm run build` first and, once, `npx playwright install chromium`.
+flow, including timeline drag/drop, import and persistence (26 steps) and writes screenshots to `test-results/`. It needs `npm run build` first and, once, `npx playwright install chromium`.
 
 `node scripts/verify-real-model.mjs` runs one 30 s generation and one repaint
 against the real model server through the app's HTTP API and prints timings and

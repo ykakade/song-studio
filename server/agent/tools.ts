@@ -3,7 +3,8 @@
 
 import type { LlmToolDef } from "../llm/types.ts";
 import { MIN_DURATION_SEC, MIN_REPAINT_SEC, type Studio, StudioError } from "../studio.ts";
-import type { Job, Marker, Take, TakeTiming } from "../types.ts";
+import { SOUND_LIBRARY } from "../sounds.ts";
+import type { Job, Marker, Take, TakeTiming, Timeline } from "../types.ts";
 
 type Schema = Record<string, any>;
 
@@ -11,6 +12,7 @@ const RANGE_TOLERANCE_SEC = 0.06;
 
 export function toolDefinitions(maxDurationSec: number): LlmToolDef[] {
   return [
+    { name: "arrangement_history", description: "Undo or redo the most recent timeline edit (adding, moving, resizing, removing or adjusting sounds, tempo, chords). Separate from reverting a take. Applies immediately; history survives restarts.", inputSchema: { type: "object", additionalProperties: false, required: ["direction"], properties: { direction: { type: "string", enum: ["undo", "redo"] } } } },
     {
       name: "generate_song",
       description:
@@ -108,6 +110,68 @@ export function toolDefinitions(maxDurationSec: number): LlmToolDef[] {
       },
     },
     {
+      name: "add_sound",
+      description:
+        "Layer a ready-made instrument sound (drums, percussion, bass, guitar, keys) on top of the song, as a clip on the timeline under the waveform. Takes effect immediately: no job, no new take, and the song's own audio is not changed. The person sees the clip appear and hears it with the song; they can drag, resize or delete it. " +
+        "Use it when the person asks to add an instrument or a beat on top (\"add drums\", \"put a shaker on the chorus\"). The sounds are synthesised at the song's measured tempo and in its key. Pitched sounds follow chord regions saved in Tempo & chords, falling back to the song key in gaps. " +
+        `Sounds: ${SOUND_LIBRARY.map((s) => `${s.id} (${s.description.replace(/\.$/, "")})`).join("; ")}. ` +
+        "Leave out the times to cover the whole song. To cover one part, give its range from the selection, a marker, a heard section, or numbers the person typed. Times are moved onto the nearest beat.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["sound"],
+        properties: {
+          sound: { type: "string", enum: SOUND_LIBRARY.map((s) => s.id), description: "Which sound to add." },
+          start_seconds: { type: "number", description: "Where the clip starts. Omit to start at the song's first beat." },
+          end_seconds: { type: "number", description: "Where the clip ends. Omit to run to the end of the song (a one-shot such as the crash plays once)." },
+          track_id: { type: "string", description: "Put the clip on this existing track. Omit to let the app choose a track of the same instrument or make a new one." },
+          volume_db: { type: "number", description: "Volume change in dB, -36 to 12. 0 is the sound's normal level; use about -6 for a part that should sit in the background." },
+        },
+      },
+    },
+    {
+      name: "update_sound",
+      description:
+        "Change a clip that is already on the timeline: move it, change where it ends, move it to another track, or change its volume. Only the fields you pass change. Takes effect immediately. Clip ids are listed in <studio_state> and by get_project_state.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["clip_id"],
+        properties: {
+          clip_id: { type: "string", description: "The clip to change." },
+          start_seconds: { type: "number", description: "New start. The clip keeps its length unless end_seconds is given too." },
+          end_seconds: { type: "number", description: "New end." },
+          track_id: { type: "string", description: "Move the clip to this track." },
+          volume_db: { type: "number", description: "New volume in dB, -36 to 12." },
+        },
+      },
+    },
+    {
+      name: "remove_sound",
+      description: "Take a clip off the timeline. Takes effect immediately; the song's own audio is not affected.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["clip_id"],
+        properties: { clip_id: { type: "string", description: "The clip to remove." } },
+      },
+    },
+    {
+      name: "set_track",
+      description: "Mute or unmute a timeline track, change the volume of everything on it, or rename it. Only the fields you pass change. Takes effect immediately.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["track_id"],
+        properties: {
+          track_id: { type: "string", description: "The track to change." },
+          muted: { type: "boolean", description: "true silences the track without removing its clips." },
+          volume_db: { type: "number", description: "Track volume in dB, -36 to 12." },
+          name: { type: "string", description: "New track name." },
+        },
+      },
+    },
+    {
       name: "revert_to_take",
       description:
         "Make an earlier finished take the current one. Nothing is deleted or changed; later takes stay in the history. Takes effect immediately (no job).",
@@ -152,6 +216,9 @@ export function validateAgainstSchema(schema: Schema, value: unknown, where = "i
       }
       return null;
     }
+    case "boolean":
+      if (typeof value !== "boolean") return `${where} must be true or false`;
+      return null;
     case "string":
       if (typeof value !== "string") return `${where} must be a string`;
       if (schema.enum && !schema.enum.includes(value)) return `${where} must be one of: ${schema.enum.join(", ")}`;
@@ -198,6 +265,46 @@ function markersOut(markers: Marker[]) {
   return markers.map((m) => ({ label: m.label, start_seconds: m.startSec, end_seconds: m.endSec }));
 }
 
+/** The timeline as tools report it: tracks with their clips, in seconds. */
+export function timelineOut(t: Timeline | null) {
+  if (!t) return null;
+  return {
+    chords: t.chords,
+    history: t.history,
+    beat: t.grid.manual ? { bpm: t.grid.bpm, first_beat_seconds: t.grid.firstBeatSec, source: "manually corrected" } : t.grid.detected
+      ? { bpm: t.grid.bpm, first_beat_seconds: t.grid.firstBeatSec, source: "measured from the audio" }
+      : { bpm: t.grid.bpm, first_beat_seconds: 0, source: "not found in the audio; this is the tempo that was asked for, so sounds may drift against the song" },
+    tracks: t.tracks.map((tr) => ({
+      track_id: tr.id,
+      name: tr.name,
+      muted: tr.muted,
+      volume_db: tr.gainDb,
+      clips: t.clips
+        .filter((c) => c.trackId === tr.id)
+        .sort((a, b) => a.startSec - b.startSec)
+        .map((c) => ({
+          clip_id: c.id,
+          sound: c.sound === "import" ? `imported file: ${c.name}` : c.sound,
+          start_seconds: c.startSec,
+          end_seconds: Math.round((c.startSec + c.durationSec) * 1000) / 1000,
+          volume_db: c.gainDb,
+        })),
+    })),
+  };
+}
+
+function clipOut(clip: { id: string; sound: string; startSec: number; durationSec: number; gainDb: number; trackId: string }, t: Timeline) {
+  return {
+    clip_id: clip.id,
+    sound: clip.sound,
+    track_id: clip.trackId,
+    track: t.tracks.find((x) => x.id === clip.trackId)?.name,
+    start_seconds: clip.startSec,
+    end_seconds: Math.round((clip.startSec + clip.durationSec) * 1000) / 1000,
+    volume_db: clip.gainDb,
+  };
+}
+
 export function projectStateForAgent(studio: Studio, projectId: string) {
   const s = studio.snapshot(projectId);
   const cur = s.takes.find((t) => t.id === s.project.currentTakeId) ?? null;
@@ -224,6 +331,7 @@ export function projectStateForAgent(studio: Studio, projectId: string) {
     project_folder: s.project.path,
     selection: s.project.selection ? { start_seconds: s.project.selection.startSec, end_seconds: s.project.selection.endSec } : null,
     section_markers: markersOut(s.markers),
+    timeline: timelineOut(s.timeline),
     takes: s.takes.map((t) => {
       const timing = t.status === "done" ? studio.store.readTiming(t) : null;
       return { ...takeBrief(t), ...(timing ? { lyric_words_heard: `${timing.lyricWordsHeard}/${timing.lyricWords}` } : {}) };
@@ -257,6 +365,7 @@ function near(a: number, b: number): boolean {
 
 async function run(studio: Studio, projectId: string, name: string, input: any): Promise<unknown> {
   switch (name) {
+    case "arrangement_history": return timelineOut(studio.arrangementStep(projectId, input.direction));
     case "generate_song":
       return started(
         await studio.startGenerate(projectId, {
@@ -337,6 +446,48 @@ async function run(studio: Studio, projectId: string, name: string, input: any):
         (input.markers as any[]).map((m) => ({ label: m.label, startSec: m.start_seconds, endSec: m.end_seconds })),
       );
       return { saved: true, section_markers: markersOut(saved) };
+    }
+
+    case "add_sound": {
+      const r = studio.addSound(projectId, {
+        sound: input.sound,
+        startSec: input.start_seconds,
+        endSec: input.end_seconds,
+        trackId: input.track_id,
+        gainDb: input.volume_db,
+        snap: true,
+      });
+      const pitched = SOUND_LIBRARY.find((s) => s.id === r.clip.sound)?.pitched;
+      return {
+        added: true,
+        clip: clipOut(r.clip, r.timeline),
+        beat: timelineOut(r.timeline)!.beat,
+        note:
+          "The clip is on the timeline now and plays with the song." +
+          (pitched ? (r.timeline.chords.length ? " This sound follows the saved chord regions." : " This sound holds the key’s home chord; add chord regions in Tempo & chords to change its harmony.") : "") +
+          (r.timeline.grid.detected || r.timeline.grid.manual ? "" : " The beat could not be found in the audio, so the sound may drift against the song; the person can drag the clip to line it up."),
+      };
+    }
+
+    case "update_sound": {
+      const r = studio.updateClip(projectId, String(input.clip_id), {
+        startSec: input.start_seconds,
+        endSec: input.end_seconds,
+        trackId: input.track_id,
+        gainDb: input.volume_db,
+        snap: true,
+      });
+      return { changed: true, clip: clipOut(r.clip, r.timeline) };
+    }
+
+    case "remove_sound": {
+      const timeline = studio.removeClip(projectId, String(input.clip_id));
+      return { removed: true, timeline: timelineOut(timeline) };
+    }
+
+    case "set_track": {
+      const timeline = studio.updateTrack(projectId, String(input.track_id), { name: input.name, muted: input.muted, gainDb: input.volume_db });
+      return { changed: true, track: timelineOut(timeline)!.tracks.find((t) => t.track_id === input.track_id) };
     }
 
     case "revert_to_take": {

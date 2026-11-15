@@ -6,6 +6,8 @@
 //     lyrics.md            the current take's lyrics (yours to edit, see below)
 //     takes/take-001.json  everything that made take 1 (immutable once finished)
 //     takes/take-001.wav   its audio, plus take-001.peaks.json for the waveform
+//     timeline.json        sounds layered on the song: tracks and clips (per song)
+//     sounds/*.wav         the audio of those clips (rendered library sounds, imported files)
 //     history.jsonl        append-only log of what happened, one JSON object per line
 //     chat.jsonl           the conversation, one message per line (append-only)
 //     .studio/             app state that does not belong in git: jobs, selection
@@ -24,8 +26,11 @@ import { randomBytes } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type {
+  BeatGrid,
+  ChordRegion,
   ChatContent,
   ChatMessage,
+  Clip,
   Job,
   JobStatus,
   JobTimings,
@@ -38,9 +43,21 @@ import type {
   TakeParams,
   TakeStatus,
   TakeTiming,
+  Track,
 } from "./types.ts";
 
 export const SONG_FORMAT = "song-studio/1";
+export const TIMELINE_FORMAT = "song-studio/timeline/1";
+/** Names the app accepts for files in sounds/: no folders, no dot files, WAV only. */
+const SOUND_FILE = /^[a-z0-9][a-z0-9._-]{0,119}\.wav$/;
+
+/** The tracks and clips of one song (the lineage of a first take). */
+export interface Arrangement {
+  chords?: ChordRegion[];
+  grid?: BeatGrid;
+  tracks: Track[];
+  clips: Clip[];
+}
 const PROJECT_ID = /^[a-z0-9][a-z0-9._-]{0,99}$/;
 
 export function newId(prefix: string, bytes = 4): string {
@@ -520,6 +537,100 @@ export class ProjectStore {
 
   writeTiming(take: Pick<Take, "projectId" | "seq">, timing: TakeTiming): void {
     writeJson(this.takePath(take, ".timing.json"), timing);
+  }
+
+  // --- beat grid (derived from the audio, like timing) ---------------------------------------------
+
+  readBeats(take: Pick<Take, "projectId" | "seq">): BeatGrid | null {
+    const g = readJson<BeatGrid>(this.takePath(take, ".beats.json"));
+    return g && Number.isFinite(g.bpm) && g.bpm > 0 && Number.isFinite(g.beatSec) && g.beatSec > 0 && Number.isFinite(g.firstBeatSec) ? g : null;
+  }
+
+  writeBeats(take: Pick<Take, "projectId" | "seq">, grid: BeatGrid): void {
+    writeJson(this.takePath(take, ".beats.json"), grid);
+  }
+
+  // --- timeline (timeline.json) and its audio (sounds/) ---------------------------------------------
+
+  private timelineFile(id: string): string {
+    return path.join(this.projectDir(id), "timeline.json");
+  }
+
+  /** Absolute path of a file in the project's sounds/ folder, or null if the name is not one the app accepts. */
+  soundPath(projectId: string, file: string): string | null {
+    return SOUND_FILE.test(file) ? path.join(this.projectDir(projectId), "sounds", file) : null;
+  }
+
+  writeSound(projectId: string, file: string, wav: Buffer): void {
+    const target = this.soundPath(projectId, file);
+    if (!target) throw new Error(`invalid sound file name ${JSON.stringify(file)}`);
+    mkdirSync(path.dirname(target), { recursive: true });
+    const tmp = `${target}.${process.pid}.${randomBytes(3).toString("hex")}.tmp`;
+    writeFileSync(tmp, wav);
+    renameSync(tmp, target);
+  }
+
+  /** The song's tracks and clips. Entries that a hand edit left unusable are dropped, not fatal. */
+  readArrangement(projectId: string, rootTakeId: string): Arrangement {
+    const song = readJson<{ songs?: Record<string, Partial<Arrangement>> }>(this.timelineFile(projectId))?.songs?.[rootTakeId];
+    const num = (v: unknown) => typeof v === "number" && Number.isFinite(v);
+    const tracks = (Array.isArray(song?.tracks) ? song.tracks : [])
+      .filter((t) => t && typeof t.id === "string" && typeof t.name === "string")
+      .map((t) => ({ id: t.id, name: t.name, muted: t.muted === true, gainDb: num(t.gainDb) ? t.gainDb : 0 }));
+    const clips = (Array.isArray(song?.clips) ? song.clips : [])
+      .filter(
+        (c) =>
+          c &&
+          typeof c.id === "string" &&
+          tracks.some((t) => t.id === c.trackId) &&
+          typeof c.file === "string" &&
+          SOUND_FILE.test(c.file) &&
+          num(c.startSec) &&
+          num(c.durationSec) &&
+          c.durationSec > 0 &&
+          num(c.fileDurationSec) &&
+          c.fileDurationSec > 0,
+      )
+      .map((c) => ({
+        id: c.id,
+        trackId: c.trackId,
+        sound: typeof c.sound === "string" ? c.sound : "import",
+        name: typeof c.name === "string" ? c.name : c.file,
+        instrument: typeof c.instrument === "string" ? c.instrument : "audio",
+        file: c.file,
+        fileDurationSec: c.fileDurationSec,
+        loop: c.loop === true,
+        startSec: Math.max(0, c.startSec),
+        durationSec: c.durationSec,
+        gainDb: num(c.gainDb) ? c.gainDb : 0,
+      }));
+    return { tracks, clips, chords: Array.isArray(song?.chords) ? song.chords : [], grid: song?.grid };
+  }
+
+  arrangementHistory(projectId: string, rootTakeId: string): { past: Arrangement[]; future: Arrangement[] } {
+    const song = readJson<{ songs?: Record<string, { history?: { past: Arrangement[]; future: Arrangement[] } }> }>(this.timelineFile(projectId))?.songs?.[rootTakeId];
+    return song?.history ?? { past: [], future: [] };
+  }
+
+  writeArrangement(projectId: string, rootTakeId: string, arrangement: Arrangement, direction?: "undo" | "redo"): void {
+    const current = this.readArrangement(projectId, rootTakeId);
+    const history = this.arrangementHistory(projectId, rootTakeId);
+    if (direction === "undo") { history.past.pop(); history.future.push(current); }
+    else if (direction === "redo") { history.future.pop(); history.past.push(current); }
+    else {
+      if (JSON.stringify(current) === JSON.stringify(arrangement)) return;
+      history.past.push(current);
+      history.past = history.past.slice(-100);
+      history.future = [];
+    }
+    const file = readJson<{ songs?: Record<string, unknown> }>(this.timelineFile(projectId));
+    const songs = file?.songs && typeof file.songs === "object" ? file.songs : {};
+    songs[rootTakeId] = { ...arrangement, history };
+    writeJson(this.timelineFile(projectId), { format: TIMELINE_FORMAT, songs });
+  }
+
+  saveLyricsDraft(projectId: string, lyrics: string): void {
+    writeAtomic(path.join(this.projectDir(projectId), "lyrics.md"), lyrics);
   }
 
   // --- jobs ----------------------------------------------------------------------------------

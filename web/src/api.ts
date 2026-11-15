@@ -1,7 +1,11 @@
-import type { Health, Job, Marker, Project, ProjectState, ProjectSummary, Selection, StudioEvent, Take } from "../../server/types.ts";
+import type { Clip, Health, Job, Marker, Project, ProjectState, ProjectSummary, Selection, SoundInfo, StudioEvent, Take, Timeline } from "../../server/types.ts";
 
 export type {
+  BeatGrid,
+  ChordRegion,
+  JoinOptions,
   ChatMessage,
+  Clip,
   DetectedLine,
   DetectedSection,
   Health,
@@ -10,12 +14,24 @@ export type {
   Project,
   ProjectState,
   ProjectSummary,
+  Instrument,
   Selection,
+  SoundInfo,
   SpliceChecks,
   StudioEvent,
   Take,
   TakeTiming,
+  Timeline,
+  Track,
 } from "../../server/types.ts";
+
+export interface ClipChange {
+  startSec?: number;
+  durationSec?: number;
+  trackId?: string;
+  newTrack?: boolean;
+  gainDb?: number;
+}
 
 export class ApiError extends Error {
   readonly status: number;
@@ -44,6 +60,11 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 }
 
 export const api = {
+  arrangementStep: (id: string, direction: "undo" | "redo") => request("POST", `/api/projects/${id}/arrangement/${direction}`),
+  setMusic: (id: string, music: { bpm: number; firstBeatSec: number; chords: import("../../server/types.ts").ChordRegion[] }) => request("PUT", `/api/projects/${id}/music`, music),
+  saveLyrics: (id: string, lyrics: string) => request("PUT", `/api/projects/${id}/lyrics`, { lyrics }),
+  repaint: (id: string, input: { takeId: string; startSec: number; endSec: number; lyrics: string }) => request("POST", `/api/projects/${id}/repaint`, input),
+  refineJoins: (id: string, takeId: string, joins: import("../../server/types.ts").JoinOptions) => request("POST", `/api/projects/${id}/takes/${takeId}/joins`, joins),
   health: () => request<Health>("GET", "/api/health"),
   listProjects: () => request<{ projects: ProjectSummary[] }>("GET", "/api/projects").then((r) => r.projects),
   createProject: (title?: string) => request<{ project: Project }>("POST", "/api/projects", { title }).then((r) => r.project),
@@ -56,6 +77,30 @@ export const api = {
   analyse: (id: string, takeId: string) => request<{ queued: boolean }>("POST", `/api/projects/${id}/takes/${takeId}/analyse`),
   setMarkers: (id: string, markers: Marker[]) => request<{ markers: Marker[] }>("PUT", `/api/projects/${id}/markers`, { markers }).then((r) => r.markers),
   peaks: (takeId: string) => request<{ peaks: number[]; durationSec: number }>("GET", `/api/takes/${takeId}/peaks`),
+  sounds: () => request<{ sounds: SoundInfo[] }>("GET", "/api/sounds").then((r) => r.sounds),
+  addClip: (id: string, clip: { sound: string; startSec?: number; endSec?: number; trackId?: string; newTrack?: boolean }) =>
+    request<{ clip: Clip; timeline: Timeline }>("POST", `/api/projects/${id}/clips`, clip),
+  updateClip: (id: string, clipId: string, change: ClipChange) => request<{ clip: Clip; timeline: Timeline }>("PATCH", `/api/projects/${id}/clips/${clipId}`, change),
+  removeClip: (id: string, clipId: string) => request<{ timeline: Timeline }>("DELETE", `/api/projects/${id}/clips/${clipId}`),
+  updateTrack: (id: string, trackId: string, change: { muted?: boolean; gainDb?: number; name?: string }) =>
+    request<{ timeline: Timeline }>("PATCH", `/api/projects/${id}/tracks/${trackId}`, change),
+  /** Upload a 16-bit WAV as a new clip. */
+  async importClip(id: string, name: string, wav: Blob, at: { startSec: number; trackId?: string }): Promise<{ clip: Clip; timeline: Timeline }> {
+    const q = new URLSearchParams({ name, startSec: String(at.startSec), ...(at.trackId ? { trackId: at.trackId } : {}) });
+    let res: Response;
+    try {
+      res = await fetch(`/api/projects/${id}/clips/import?${q}`, { method: "POST", headers: { "content-type": "audio/wav" }, body: wav });
+    } catch {
+      throw new ApiError(0, "offline", "Cannot reach the Song Studio server. Is it still running?");
+    }
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new ApiError(res.status, data?.code ?? "error", data?.error ?? `Request failed (${res.status})`);
+    return data;
+  },
+  soundUrl: (id: string, file: string) => `/api/projects/${id}/sounds/${encodeURIComponent(file)}`,
+  previewUrl: (soundId: string, o: { bpm: number; key: string; beatsPerBar: number }) =>
+    `/api/sounds/${encodeURIComponent(soundId)}/audio?${new URLSearchParams({ bpm: String(o.bpm), key: o.key, beatsPerBar: String(o.beatsPerBar) })}`,
+  mixUrl: (id: string, takeId: string) => `/api/projects/${id}/takes/${takeId}/mix?download`,
   audioUrl: (takeId: string) => `/api/takes/${takeId}/audio`,
   downloadUrl: (takeId: string) => `/api/takes/${takeId}/audio?download`,
 };

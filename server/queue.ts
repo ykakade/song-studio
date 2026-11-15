@@ -273,7 +273,7 @@ export class JobQueue {
         this.publish(this.store.updateJob(job.id, { progress: 0.98, stage: "Splicing into the parent take" }));
         const parent = await readWavFile(parentPath!);
         const server = await readWavFile(tmpFile);
-        const spliced = spliceRepaint(parent, server, { startSec: p.repaint!.startSec, endSec: p.repaint!.endSec });
+        const spliced = spliceRepaint(parent, server, { startSec: p.repaint!.startSec, endSec: p.repaint!.endSec, ...p.joins });
         audio = spliced.audio;
         checks = spliced.checks;
         await writeWavFile(finalPath, audio);

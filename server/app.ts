@@ -17,9 +17,11 @@ import { ProjectStore } from "./store.ts";
 import { EventBus } from "./events.ts";
 import { createLlm, type LlmClient } from "./llm/index.ts";
 import { JobQueue } from "./queue.ts";
+import { renderSound, SOUND_LIBRARY } from "./sounds.ts";
 import { Studio, StudioError } from "./studio.ts";
 import { type Transcriber, WhisperTranscriber } from "./transcribe.ts";
 import type { Health, ProjectState, Selection, StudioEvent } from "./types.ts";
+import { encodeWav } from "./wav.ts";
 
 const APP_VERSION: string = JSON.parse(readFileSync(path.join(APP_ROOT, "package.json"), "utf8")).version;
 
@@ -200,6 +202,7 @@ export function createApp(config: Config, overrides: { llm?: LlmClient; transcri
       stylePrompt: b?.stylePrompt,
       seed: b?.seed,
       changeSummary: b?.changeSummary,
+      joins: b?.joins,
     });
     return c.json(r, 202);
   });
@@ -233,6 +236,104 @@ export function createApp(config: Config, overrides: { llm?: LlmClient; transcri
     const id = c.req.param("id");
     studio.project(id);
     return c.json({ selection: studio.setSelection(id, selectionFrom(b?.selection)) });
+  });
+
+  // --- the timeline: sounds layered on the song ----------------------------------------------
+
+  app.get("/api/sounds", (c) => c.json({ sounds: SOUND_LIBRARY }));
+
+  /** A library sound rendered on the spot, for listening before adding it. */
+  app.get("/api/sounds/:sound/audio", (c) => {
+    const sound = SOUND_LIBRARY.find((s) => s.id === c.req.param("sound"));
+    if (!sound) throw new StudioError("not_found", "no such sound");
+    const bpm = Number(c.req.query("bpm") ?? 100);
+    const beatsPerBar = Number(c.req.query("beatsPerBar") ?? 4);
+    if (!(bpm >= 40 && bpm <= 220) || ![2, 3, 4, 6].includes(beatsPerBar)) throw new StudioError("invalid", "bpm must be 40–220 and beatsPerBar one of 2, 3, 4, 6");
+    const key = c.req.query("key") ?? "C Major";
+    const audio = renderSound(sound.id, { bpm, key, beatsPerBar, sampleRate: 48000 });
+    return c.body(new Uint8Array(encodeWav(audio)), 200, { "content-type": "audio/wav", "cache-control": "private, max-age=3600" });
+  });
+
+  app.post("/api/projects/:id/arrangement/:direction", (c) => {
+    const direction = c.req.param("direction");
+    if (direction !== "undo" && direction !== "redo") throw new StudioError("invalid", "use undo or redo");
+    return c.json({ timeline: studio.arrangementStep(c.req.param("id"), direction) });
+  });
+  app.put("/api/projects/:id/music", async (c) => c.json({ timeline: studio.setMusic(c.req.param("id"), await c.req.json()) }));
+  app.put("/api/projects/:id/lyrics", async (c) => {
+    studio.saveLyrics(c.req.param("id"), (await c.req.json())?.lyrics);
+    return c.json({ saved: true });
+  });
+  app.post("/api/projects/:id/takes/:takeId/joins", async (c) => c.json({ take: studio.refineJoins(c.req.param("id"), c.req.param("takeId"), await c.req.json()) }, 201));
+
+  app.get("/api/projects/:id/timeline", (c) => c.json({ timeline: studio.timeline(c.req.param("id")) }));
+
+  app.post("/api/projects/:id/clips", async (c) => {
+    const b = await c.req.json();
+    const r = studio.addSound(c.req.param("id"), {
+      sound: b?.sound,
+      startSec: b?.startSec,
+      endSec: b?.endSec,
+      trackId: b?.trackId,
+      newTrack: b?.newTrack === true,
+      gainDb: b?.gainDb,
+      snap: b?.snap === true,
+    });
+    return c.json(r, 201);
+  });
+
+  /** Body: a 16-bit PCM WAV. Query: name, startSec?, trackId? */
+  app.post("/api/projects/:id/clips/import", async (c) => {
+    const wav = Buffer.from(await c.req.arrayBuffer());
+    if (wav.length > 150_000_000) throw new StudioError("invalid", "the audio file is too large (the limit is 150 MB)");
+    const startSec = c.req.query("startSec");
+    const r = studio.importSound(c.req.param("id"), {
+      name: c.req.query("name") ?? "Audio",
+      wav,
+      startSec: startSec === undefined ? undefined : Number(startSec),
+      trackId: c.req.query("trackId") || undefined,
+    });
+    return c.json(r, 201);
+  });
+
+  app.patch("/api/projects/:id/clips/:clipId", async (c) => {
+    const b = await c.req.json();
+    const r = studio.updateClip(c.req.param("id"), c.req.param("clipId"), {
+      startSec: b?.startSec,
+      endSec: b?.endSec,
+      durationSec: b?.durationSec,
+      trackId: b?.trackId,
+      newTrack: b?.newTrack === true,
+      gainDb: b?.gainDb,
+      snap: b?.snap === true,
+    });
+    return c.json(r);
+  });
+
+  app.delete("/api/projects/:id/clips/:clipId", (c) => c.json({ timeline: studio.removeClip(c.req.param("id"), c.req.param("clipId")) }));
+
+  app.patch("/api/projects/:id/tracks/:trackId", async (c) => {
+    const b = await c.req.json();
+    return c.json({ timeline: studio.updateTrack(c.req.param("id"), c.req.param("trackId"), { name: b?.name, muted: b?.muted, gainDb: b?.gainDb }) });
+  });
+
+  /** The audio of a clip: a file in the project's sounds/ folder. */
+  app.get("/api/projects/:id/sounds/:file", async (c) => {
+    studio.project(c.req.param("id"));
+    const file = store.soundPath(c.req.param("id"), c.req.param("file"));
+    if (!file || !existsSync(file)) throw new StudioError("not_found", "no such sound file");
+    return c.body(new Uint8Array(await readFile(file)), 200, { "content-type": "audio/wav", "cache-control": "private, no-cache" });
+  });
+
+  /** A take with the timeline's sounds mixed in, as one WAV. */
+  app.get("/api/projects/:id/takes/:takeId/mix", (c) => {
+    const { audio, take } = studio.mix(c.req.param("id"), c.req.param("takeId"));
+    const name = `${take.params.title || "song"} - take ${take.seq} mix`.replace(/[^\w .()-]+/g, "_");
+    return c.body(new Uint8Array(encodeWav(audio)), 200, {
+      "content-type": "audio/wav",
+      "cache-control": "no-store",
+      ...(c.req.query("download") !== undefined ? { "content-disposition": `attachment; filename="${name}.wav"` } : {}),
+    });
   });
 
   app.get("/api/jobs/:id", (c) => {

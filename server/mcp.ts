@@ -21,6 +21,8 @@ Every change makes a new immutable take. generate_song makes a new song; repaint
 
 Never estimate a time range. A repaint range must come from the person's waveform selection, a saved section marker, a section the app heard in that take (speech recognition aligns the lyrics after each take), or numbers the person gave you. The app rejects a range that does not match its stated source.
 
+add_sound, update_sound, remove_sound and set_track work on the timeline: ready-made instrument sounds (drums, bass, guitar, keys) layered on top of the song as clips. They take effect at once, make no take and never change the song's audio; the clips' files are in the project's sounds/ folder and their positions in timeline.json.
+
 Lyrics passed to a tool are always the complete lyrics of the whole song. Keep to about four sung words per bar; the app rejects lyrics that do not fit the duration.
 
 The person sees everything you do in the studio's web app as it happens.`;

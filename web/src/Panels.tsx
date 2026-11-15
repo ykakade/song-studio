@@ -1,3 +1,5 @@
+import { useState, type ReactNode } from "react";
+import { api } from "./api.ts";
 import { AudioLines, Bookmark, Check, ChevronRight, CircleX, CornerDownRight, FileText, LoaderCircle, TriangleAlert, X } from "lucide-react";
 import type { DetectedSection, Marker, Selection, SpliceChecks, Take, TakeTiming } from "./api.ts";
 import { timeAgo } from "./api.ts";
@@ -12,7 +14,9 @@ export function Lyrics({
   parent,
   timing,
   onSelectLine,
+  actions,
 }: {
+  actions?: ReactNode;
   take: Take;
   parent: Take | null;
   /** Where the lines were heard in this take, if known. */
@@ -31,9 +35,7 @@ export function Lyrics({
           <FileText {...icon} />
           lyrics.md
         </span>
-        <span className="mono">
-          {p.bpm} bpm · {p.key} · {p.timeSignature}/4
-        </span>
+        <div className="doc-actions"><span className="mono">{p.bpm} bpm · {p.key} · {p.timeSignature}/4</span>{actions}</div>
       </header>
       <div className="lyrics-body" data-testid="lyrics">
         {lines.map((line, i) => {
@@ -158,7 +160,10 @@ function CheckDetails({ checks }: { checks: SpliceChecks }) {
 }
 
 /** The bottom panel: everything the app measured about one take. */
-export function TakeDetails({ take, onClose }: { take: Take; onClose: () => void }) {
+export function TakeDetails({ take, projectId, onError, onListen, onClose }: { take: Take; projectId: string; onError: (s: string | null) => void; onListen: (ranges: Selection[]) => void; onClose: () => void }) {
+  const [fade, setFade] = useState(take.params.joins?.crossfadeMs ?? take.checks?.crossfadeMs ?? 50);
+  const [match, setMatch] = useState(take.params.joins?.matchLevel ?? false);
+  const [busy, setBusy] = useState(false);
   return (
     <section className="bottom-panel" aria-label={`Take ${take.seq} details`}>
       <header className="bottom-head">
@@ -172,6 +177,25 @@ export function TakeDetails({ take, onClose }: { take: Take; onClose: () => void
       <div className="bottom-body">
         {take.status === "failed" && <p className="check-reason">{take.error}</p>}
         {take.checks && <CheckDetails checks={take.checks} />}
+        {take.checks?.status === "verified" && take.params.repaint && <form className="join-controls" onSubmit={async (e) => {
+          e.preventDefault(); setBusy(true); onError(null);
+          try { await api.refineJoins(projectId, take.id, { crossfadeMs: fade, matchLevel: match }); onClose(); }
+          catch (err) { onError((err as Error).message); }
+          finally { setBusy(false); }
+        }}>
+          <div className="join-title">Refine joins <span className="muted small">Creates a new take · no generation</span></div>
+          <div className="setting-actions">
+            <label>Fade <input aria-label="Join fade in milliseconds" type="number" min="0" max="500" step="10" value={fade} onChange={(e) => setFade(Number(e.target.value))} required /> ms</label>
+            <label className="check-label"><input type="checkbox" checked={match} onChange={(e) => setMatch(e.target.checked)} />Match section level</label>
+            <span className="spacer" />
+            <button type="button" className="btn btn-small" onClick={() => {
+              const r = take.params.repaint!;
+              onListen([r.startSec, r.endSec].filter((t) => t > 0 && t < (take.durationSec ?? 0)).map((t) => ({ startSec: Math.max(0, t - 1.5), endSec: Math.min(take.durationSec!, t + 1.5) })));
+            }}>Listen to joins</button>
+            <button className="btn btn-small" disabled={busy}>{busy ? "Applying…" : "Apply to new take"}</button>
+          </div>
+          <p className="muted small">Fades stay inside the edited range. Level matching follows the original section, limited to ±6 dB.</p>
+        </form>}
         <p className="take-meta">
           {take.id} · seed {take.params.seed} · {take.durationSec ? `${take.durationSec.toFixed(1)} s · ` : ""}
           {timeAgo(take.createdAt)}

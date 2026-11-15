@@ -26,6 +26,17 @@ function describeTool(use: ToolUse): { title: string; detail: string } {
         title: "Save section markers",
         detail: Array.isArray(i.markers) ? i.markers.map((m: any) => `${m.label} ${num(m.start_seconds)}–${num(m.end_seconds)} s`).join(", ") : "",
       };
+    case "add_sound":
+      return {
+        title: "Add a sound to the timeline",
+        detail: [i.sound, typeof i.start_seconds === "number" || typeof i.end_seconds === "number" ? `${num(i.start_seconds)}–${num(i.end_seconds)} s` : "whole song"].filter(Boolean).join(" · "),
+      };
+    case "update_sound":
+      return { title: "Change a sound on the timeline", detail: String(i.clip_id ?? "") };
+    case "remove_sound":
+      return { title: "Remove a sound from the timeline", detail: String(i.clip_id ?? "") };
+    case "set_track":
+      return { title: i.muted === true ? "Mute a track" : i.muted === false ? "Unmute a track" : "Change a track", detail: String(i.name ?? i.track_id ?? "") };
     case "revert_to_take":
       return { title: "Switch to an earlier take", detail: String(i.take_id ?? "") };
     default:

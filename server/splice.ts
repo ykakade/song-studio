@@ -23,6 +23,7 @@ export interface SpliceOptions {
   endSec: number;
   /** Length of each equal-power crossfade. Default 50 ms. */
   crossfadeMs?: number;
+  matchLevel?: boolean;
   /** Audio this close to the range is ignored when estimating the gain (the server crossfades ~25 ms there). Default 250 ms. */
   guardMs?: number;
   /** Below this outside-range correlation the server's file is not trusted to line up with the parent. Default 0.999. */
@@ -275,6 +276,18 @@ export function spliceRepaint(parent: WavAudio, server: WavAudio, opts: SpliceOp
   }
   base.appliedGain = round(inverse, 6)!;
 
+  // Match the original section's local levels, bounded to +/-6 dB. Interpolate
+  // between the two ends; samples outside the selection never enter the output path.
+  const window = Math.min(Math.round(sr * 0.15), Math.floor((endFrame - startFrame) / 2));
+  const levelRatio = (from: number, to: number) => {
+    const oldDb = rmsDb(parent.samples, ch, from, to);
+    const newDb = rmsDb(server.samples, ch, from, to);
+    if (!opts.matchLevel || oldDb === null || newDb === null || oldDb < -60 || newDb < -60) return 1;
+    return 10 ** (Math.max(-6, Math.min(6, oldDb - newDb - 20 * Math.log10(inverse))) / 20);
+  };
+  const startLevel = levelRatio(startFrame, startFrame + window);
+  const endLevel = levelRatio(endFrame - window, endFrame);
+
   // 3. Assemble: parent everywhere, then overwrite the range.
   const out = parent.samples.slice();
   const fade = Math.min(Math.round((crossfadeMs / 1000) * sr), Math.floor((endFrame - startFrame) / 2));
@@ -296,7 +309,9 @@ export function spliceRepaint(parent: WavAudio, server: WavAudio, opts: SpliceOp
     }
     for (let c = 0; c < ch; c++) {
       const i = f * ch + c;
-      out[i] = clip16(wNew * inverse * s[i] + wOld * p[i]);
+      const position = (f - startFrame) / Math.max(1, endFrame - startFrame - 1);
+      const level = startLevel * (1 - position) + endLevel * position;
+      out[i] = clip16(wNew * inverse * level * s[i] + wOld * p[i]);
     }
   }
   const audio: WavAudio = { sampleRate: sr, channels: ch, samples: out };

@@ -76,6 +76,28 @@ try {
   await waitForServer();
   browser = await chromium.launch({ args: ["--autoplay-policy=no-user-gesture-required"] });
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await page.addInitScript(() => {
+    window.clipPlayback = [];
+    const create = AudioContext.prototype.createBufferSource;
+    AudioContext.prototype.createBufferSource = function () {
+      const source = create.call(this);
+      const start = source.start.bind(source);
+      const stop = source.stop.bind(source);
+      let entry;
+      source.start = (...args) => {
+        if (source.loop) {
+          entry = { when: args[0], offset: args[1], stopped: false };
+          window.clipPlayback.push(entry);
+        }
+        return start(...args);
+      };
+      source.stop = (...args) => {
+        if (entry && (!args[0] || args[0] <= this.currentTime)) entry.stopped = true;
+        return stop(...args);
+      };
+      return source;
+    };
+  });
   const pageErrors = [];
   page.on("pageerror", (e) => pageErrors.push(e.message));
   page.on("console", (m) => {
@@ -198,7 +220,7 @@ try {
   // --- switch takes from the history ---------------------------------------------------
   await page.locator('[data-testid="take"][data-seq="1"] .take-select').click();
   await page.locator('[data-testid="current-take"][data-seq="1"]').waitFor();
-  assert((await t("ab").count()) === 0, "take 1 has no parent, so no A/B");
+  assert((await t("ab").count()) === 1, "the original take can compare with later takes");
   assert(!(await t("lyrics").innerText()).includes("New words"), "take 1 shows its own lyrics");
   await page.locator('[data-testid="take"][data-seq="2"] .take-select').click();
   await page.locator('[data-testid="current-take"][data-seq="2"]').waitFor();
@@ -212,6 +234,92 @@ try {
   assert((await dl.body()).length === 44 + 20 * 48000 * 4, "download is the full 20 s WAV");
   ok("the download button serves the take's WAV");
 
+  // --- timeline: agent and manual edits share one persistent arrangement ---------------
+  await t("chat-input").fill("add a drum sound");
+  await t("chat-send").click();
+  await page.locator('[data-testid="tool-call"][data-tool="add_sound"][data-state="ok"]').waitFor();
+  const drums = page.locator('[data-testid="clip"][data-sound="drums.backbeat"]');
+  await drums.waitFor();
+  assert((await t("take").count()) === 2, "adding drums creates a clip without generating a take");
+  ok("asking for drums adds a visible timeline clip");
+
+  const lane = await t("new-track-lane").boundingBox();
+  const guitarSound = page.locator('.sidebar [data-testid="sound"][data-sound="guitar.strum"]');
+  await guitarSound.dragTo(t("new-track-lane"), { targetPosition: { x: lane.width * 0.2, y: 20 } });
+  const guitar = page.locator('[data-testid="clip"][data-sound="guitar.strum"]');
+  await guitar.waitFor();
+  const initialStart = Number(await guitar.getAttribute("data-start"));
+  assert(Math.abs(initialStart - 4) < 0.6, `drop uses the audio lane's time axis: ${initialStart}`);
+  ok("dragging a library sound adds it where it lands");
+
+  // Without snapping, a five-second drag must move the clip exactly five seconds.
+  await t("snap").click();
+  const gbox = await guitar.boundingBox();
+  const dx = lane.width * 0.25;
+  await page.mouse.move(gbox.x + 15, gbox.y + 15);
+  await page.mouse.down();
+  await page.keyboard.down("Alt");
+  await page.mouse.move(gbox.x + 15 + dx, gbox.y + 15, { steps: 8 });
+  const moveSaved = page.waitForResponse((r) => r.request().method() === "PATCH" && r.url().includes("/clips/"));
+  await page.mouse.up();
+  await page.keyboard.up("Alt");
+  assert((await moveSaved).ok(), "move saved");
+  await page.waitForFunction((start) => Math.abs(Number(document.querySelector('[data-sound="guitar.strum"][data-testid="clip"]').dataset.start) - start - 5) < 0.06, initialStart);
+  assert(await t("snap").getAttribute("aria-pressed") === "false", "Alt leaves snapping disabled");
+
+  const durationBefore = Number(await guitar.getAttribute("data-duration"));
+  const handle = await guitar.getByTestId("clip-resize").boundingBox();
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(handle.x + handle.width / 2 - lane.width * 0.1, handle.y + handle.height / 2, { steps: 6 });
+  const resizeSaved = page.waitForResponse((r) => r.request().method() === "PATCH" && r.url().includes("/clips/"));
+  await page.mouse.up();
+  assert((await resizeSaved).ok(), "resize saved");
+  await page.waitForFunction((duration) => Math.abs(Number(document.querySelector('[data-sound="guitar.strum"][data-testid="clip"]').dataset.duration) - duration + 2) < 0.06, durationBefore);
+  ok("moving and resizing clips use the same time axis as the waveform");
+
+  const track = guitar.locator('xpath=ancestor::*[@data-testid="track"]');
+  await track.getByTestId("track-mute").click();
+  await track.locator('[data-testid="track-mute"][aria-pressed="true"]').waitFor();
+  const savedStart = await guitar.getAttribute("data-start");
+  await page.reload();
+  await page.locator('[data-testid="play"]:not([disabled])').waitFor();
+  await guitar.waitFor();
+  assert(await guitar.getAttribute("data-start") === savedStart, "clip position survives reload");
+  await track.locator('[data-testid="track-mute"][aria-pressed="true"]').waitFor();
+  const mixHref = await t("download-mix").getAttribute("href");
+  const mixDownload = await page.request.get(APP_URL + mixHref);
+  assert(mixDownload.ok() && (await mixDownload.body()).length === 44 + 20 * 48000 * 4, "mix downloads with the full song duration");
+  ok("clip positions and mute survive reload; the arrangement downloads as a mix");
+
+  // Unmuted drum buffers are scheduled against the song's audio clock and stop on pause.
+  await t("play").click();
+  await page.waitForFunction(() => window.clipPlayback.some((n) => !n.stopped));
+  assert(await page.evaluate(() => window.clipPlayback.filter((n) => !n.stopped).length) === 1, "only the unmuted loop plays");
+  const playbackBox = await t("waveform").boundingBox();
+  await page.mouse.click(playbackBox.x + playbackBox.width * 0.5, playbackBox.y + playbackBox.height / 2);
+  await page.waitForFunction(() => window.clipPlayback.some((n) => !n.stopped && n.offset > 1));
+  await t("play").click();
+  await page.waitForFunction(() => window.clipPlayback.every((n) => n.stopped));
+  ok("timeline audio plays, follows seeks, honours mute, and stops with the song");
+
+  // A real File drop exercises browser decode, WAV conversion, and the import route.
+  const wavBytes = [...await dl.body()];
+  const fileDrop = await page.evaluateHandle((bytes) => {
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([new Uint8Array(bytes)], "My Riff.wav", { type: "audio/wav" }));
+    return transfer;
+  }, wavBytes);
+  const importLane = await t("new-track-lane").boundingBox();
+  await t("new-track-lane").dispatchEvent("drop", { dataTransfer: fileDrop, clientX: importLane.x + importLane.width * 0.1, clientY: importLane.y + 20 });
+  const importedClip = page.locator('[data-testid="clip"][data-sound="import"]');
+  await importedClip.waitFor();
+  await importedClip.click({ position: { x: 15, y: 15 } });
+  await t("clip-remove").click();
+  await importedClip.waitFor({ state: "detached" });
+  await fileDrop.dispose();
+  ok("dropping a local audio file imports a clip that can be removed");
+
   // --- project list shows the project ---------------------------------------------------
   await page.goto(APP_URL + "/#/");
   const card = t("project-card").first();
@@ -220,8 +328,101 @@ try {
   await page.screenshot({ path: path.join(SHOTS, "06-project-list-recent.png") });
   await card.click();
   await page.locator('[data-testid="current-take"][data-seq="2"]').waitFor();
-  assert((await t("msg-user").count()) === 3, "the chat history is restored when the project is reopened");
+  assert((await t("msg-user").count()) === 4, "the chat history is restored when the project is reopened");
   ok("the project is listed and reopens with its chat and takes");
+
+  // --- arrangement history: gestures persist, and shortcuts leave text editing alone ----
+  const beforeUndo = await t("clip").count();
+  await page.getByRole("button", { name: "Undo arrangement", exact: true }).click();
+  await importedClip.waitFor();
+  await page.reload();
+  await importedClip.waitFor();
+  await page.getByRole("button", { name: "Redo arrangement", exact: true }).click();
+  await importedClip.waitFor({ state: "detached" });
+  assert(await t("clip").count() === beforeUndo, "redo restores the arrangement after reload");
+  ok("undo/redo restores a removed clip and persists across reloads");
+
+  // --- manual tempo/chords ----------------------------------------------------------
+  await page.locator(".music-settings > summary").click();
+  await page.getByRole("spinbutton", { name: "Tempo in BPM", exact: true }).fill("100");
+  await page.getByRole("spinbutton", { name: "First downbeat in seconds" }).fill("0.25");
+  await page.getByRole("button", { name: "Add chord region", exact: true }).click();
+  await page.getByRole("textbox", { name: "Chord 1", exact: true }).fill("Am");
+  const musicSaved = page.waitForResponse((r) => r.request().method() === "PUT" && r.url().endsWith("/music"));
+  await page.getByRole("button", { name: "Apply", exact: true }).click();
+  assert((await musicSaved).ok(), "music settings accepted");
+  await page.getByTestId("grid").filter({ hasText: "100 bpm (manual)" }).waitFor();
+  await page.getByRole("button", { name: "Metronome", exact: true }).click();
+  assert(await page.getByRole("button", { name: "Metronome", exact: true }).getAttribute("aria-pressed") === "true", "metronome enabled");
+  await page.getByRole("button", { name: "Metronome", exact: true }).click();
+  ok("tempo, downbeat and chord regions apply; metronome toggles");
+
+  // --- loop a short selection and audition with context ------------------------------
+  await page.locator('[data-testid="play"]:not([disabled])').waitFor();
+  const loopBox = await t("waveform").boundingBox();
+  await page.mouse.move(loopBox.x + loopBox.width * 0.2, loopBox.y + 60);
+  await page.mouse.down();
+  await page.mouse.move(loopBox.x + loopBox.width * 0.26, loopBox.y + 60, { steps: 8 });
+  await page.mouse.up();
+  await page.getByRole("button", { name: "Loop selection", exact: true }).click();
+  await page.getByRole("button", { name: "Play selection", exact: true }).click();
+  await page.waitForFunction(() => Number(document.querySelector('[data-testid="time"]').dataset.seconds) > 4.8);
+  await page.waitForFunction(() => Number(document.querySelector('[data-testid="time"]').dataset.seconds) < 4.4);
+  await t("play").click();
+  await page.getByRole("button", { name: "Loop selection", exact: true }).click();
+  await page.getByRole("button", { name: "Audition", exact: true }).click();
+  await page.waitForFunction(() => { const t = Number(document.querySelector('[data-testid="time"]').dataset.seconds); return t >= 2 && t < 4; });
+  await t("play").click();
+  ok("selection loops at its boundaries; audition starts with two seconds of context");
+
+  // --- editable draft: source gutter, budget, persistence, direct repaint -------------
+  await page.getByRole("button", { name: "Edit lyrics", exact: true }).click();
+  const draftEditor = page.getByRole("textbox", { name: "Lyrics draft", exact: true });
+  const lyricsBefore = await draftEditor.inputValue();
+  const lyricsAfter = lyricsBefore.replace("New words", "Soft rain");
+  await draftEditor.fill(lyricsAfter);
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  await page.getByText("Draft saved", { exact: true }).waitFor();
+  await page.reload();
+  await draftEditor.waitFor();
+  assert(await draftEditor.inputValue() === lyricsAfter, "saved draft survives reload");
+  await page.locator('[data-testid="play"]:not([disabled])').waitFor();
+  await page.screenshot({ path: path.join(SHOTS, "07-lyrics-editor.png") });
+  await page.getByRole("button", { name: "Recording", exact: true }).click();
+  const selectBox = await t("waveform").boundingBox();
+  await page.mouse.move(selectBox.x + selectBox.width * 0.3, selectBox.y + 60);
+  await page.mouse.down();
+  await page.mouse.move(selectBox.x + selectBox.width * 0.6, selectBox.y + 60, { steps: 8 });
+  await page.mouse.up();
+  await page.getByRole("button", { name: "Edit lyrics", exact: true }).click();
+  await page.getByRole("button", { name: "Regenerate selection", exact: true }).click();
+  await page.locator('[data-testid="current-take"][data-seq="3"]').waitFor();
+  ok("lyric drafts save, survive reload and regenerate the selected range directly");
+
+  // --- join refinement is local, immutable, verified and auditionable ----------------
+  await page.locator('[data-testid="take"][data-seq="3"] [data-testid="take-details-toggle"]').click();
+  await page.getByRole("spinbutton", { name: "Join fade in milliseconds" }).fill("120");
+  await page.getByRole("checkbox", { name: "Match section level" }).check();
+  await page.getByRole("button", { name: "Listen to joins", exact: true }).click();
+  await page.locator('[data-testid="play"][data-playing="true"]').waitFor();
+  await t("play").click();
+  await page.getByRole("button", { name: "Apply to new take", exact: true }).click();
+  await page.locator('[data-testid="current-take"][data-seq="4"]').waitFor();
+  await page.locator('[data-testid="check-badge"][data-status="verified"]').first().waitFor();
+  assert(await t("job-card").count() === 0, "refining joins doesn't run the model");
+  await page.getByRole("combobox", { name: "Comparison take", exact: true }).selectOption({ label: "Take 1 · New song: Paper Boats" });
+  await t("ab-parent").click();
+  assert((await t("lyrics").innerText()).includes("Paper boats"), "compare against any take in the song");
+  await t("ab-take").click();
+  await page.locator('[data-testid="play"]:not([disabled])').waitFor();
+  await page.screenshot({ path: path.join(SHOTS, "08-workbench.png") });
+  ok("join refinement creates a verified take locally, with join audition and arbitrary take comparison");
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: path.join(SHOTS, "09-narrow-workbench.png") });
+  assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), "narrow viewport has no horizontal page overflow");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  ok("the editor stays within a narrow viewport");
 
   // --- model server down --------------------------------------------------------------
   await mockServer.close();

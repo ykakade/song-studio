@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, subscribe, type Health, type Job, type Marker, type ProjectState, type Selection, type StudioEvent } from "./api.ts";
-import { Bookmark, ChevronRight, Download, PanelLeft, PanelRight } from "lucide-react";
+import { api, subscribe, type Health, type Job, type Marker, type ProjectState, type Selection, type SoundInfo, type StudioEvent } from "./api.ts";
+import { AudioLines, Bookmark, ChevronDown, ChevronRight, Download, PanelLeft, PanelRight } from "lucide-react";
+import { LyricsEditor } from "./LyricsEditor.tsx";
 import { Chat, JobCard } from "./Chat.tsx";
-import { CheckBadge, Lyrics, Outline, TakeDetails, TakeHistory } from "./Panels.tsx";
+import { CheckBadge, Outline, TakeDetails, TakeHistory } from "./Panels.tsx";
+import { SoundList, Timeline, type Player } from "./Timeline.tsx";
 import { Waveform } from "./Waveform.tsx";
 
 const icon = { size: 16, strokeWidth: 1.5 } as const;
@@ -44,8 +46,12 @@ export function ProjectView({ projectId, llm, onActivity }: Props) {
   const [liveJobs, setLiveJobs] = useState<Record<string, Job>>({});
   const [selection, setSelection] = useState<Selection | null>(null);
   const [listenParent, setListenParent] = useState(false);
+  const [auditionRequest, setAuditionRequest] = useState<{ takeId: string; ranges: Selection[] } | null>(null);
+  const [compareId, setCompareId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [detailsId, setDetailsId] = useState<string | null>(null);
+  const [player, setPlayer] = useState<Player | null>(null);
+  const [library, setLibrary] = useState<SoundInfo[]>([]);
   const [sideOpen, toggleSide] = usePanel("takes");
   const [chatOpen, toggleChat] = usePanel("agent");
 
@@ -110,6 +116,13 @@ export function ProjectView({ projectId, llm, onActivity }: Props) {
     return subscribe(projectId, onEvent, () => void refresh());
   }, [projectId, refresh]);
 
+  useEffect(() => {
+    void api
+      .sounds()
+      .then(setLibrary)
+      .catch(() => {});
+  }, []);
+
   // --- derived state --------------------------------------------------------------------
 
   const takes = state?.takes ?? [];
@@ -126,6 +139,16 @@ export function ProjectView({ projectId, llm, onActivity }: Props) {
 
   const timing = state?.timing ?? null;
   const heard = timing?.sections ?? [];
+
+  const comparison = takes.find((t) => t.id === compareId && t.status === "done" && t.rootTakeId === current?.rootTakeId && t.id !== current?.id) ?? parent ?? takes.find((t) => t.status === "done" && t.rootTakeId === current?.rootTakeId && t.id !== current?.id) ?? null;
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if (e.code !== "KeyB" || e.metaKey || e.ctrlKey || e.altKey || (e.target as HTMLElement).closest("input,textarea,select,button,[contenteditable=true]")) return;
+      if (comparison) { e.preventDefault(); setListenParent((v) => !v); }
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, [comparison?.id]);
 
   // A/B always starts on the take itself.
   useEffect(() => setListenParent(false), [current?.id]);
@@ -195,7 +218,7 @@ export function ProjectView({ projectId, llm, onActivity }: Props) {
     );
   }
 
-  const shown = listenParent && parent ? parent : current;
+  const shown = listenParent && comparison ? comparison : current;
   const details = detailsId ? (takes.find((t) => t.id === detailsId) ?? null) : null;
   const selectTake = (id: string) => void guard(() => api.setCurrentTake(projectId, id));
 
@@ -242,16 +265,21 @@ export function ProjectView({ projectId, llm, onActivity }: Props) {
               onAnalyse={() => void guard(() => api.analyse(projectId, current.id))}
             />
           )}
+          {current && state.timeline && (
+            <section className="side-section" aria-label="Sounds">
+              <header className="side-head" title="Ready-made instrument parts, made at this song's tempo and in its key. Drag one onto the timeline.">
+                <h3>Sounds</h3>
+                <span className="mono">{state.timeline.grid.bpm.toFixed(0)} bpm</span>
+              </header>
+              <SoundList sounds={library} grid={state.timeline.grid} songKey={current.params.key} />
+            </section>
+          )}
         </aside>
 
         <main className="editor">
           {actionError && <div className="inline-error">{actionError}</div>}
           {error && <div className="inline-error">{error}</div>}
-          {state.lyricsDraft && (
-            <div className="notice" data-testid="lyrics-draft">
-              lyrics.md was edited outside the studio and differs from this take. Ask the agent to sing your edits
-            </div>
-          )}
+
 
           {current && shown ? (
             <>
@@ -264,31 +292,51 @@ export function ProjectView({ projectId, llm, onActivity }: Props) {
                 </div>
                 <div className="editor-actions">
                   {current.checks && <CheckBadge checks={current.checks} />}
-                  {parent && (
-                    <div className="ab" role="group" aria-label="Compare with the parent take" data-testid="ab" data-listening={listenParent ? "parent" : "take"}>
+                  {comparison && (
+                    <div className="ab" role="group" aria-label="Compare takes (B to switch)" data-testid="ab" data-listening={listenParent ? "parent" : "take"}>
                       <button className={`ab-btn ${!listenParent ? "ab-on" : ""}`} onClick={() => setListenParent(false)} aria-pressed={!listenParent} data-testid="ab-take">
                         Take {current.seq}
                       </button>
                       <button className={`ab-btn ${listenParent ? "ab-on" : ""}`} onClick={() => setListenParent(true)} aria-pressed={listenParent} data-testid="ab-parent">
-                        Take {parent.seq}
+                        Take {comparison.seq}
                       </button>
+                      <span className="comparison-picker"><ChevronDown size={12} strokeWidth={1.5} /><select aria-label="Comparison take" value={comparison.id} onChange={(e) => setCompareId(e.target.value)}>{takes.filter((t) => t.status === "done" && t.rootTakeId === current.rootTakeId && t.id !== current.id).map((t) => <option key={t.id} value={t.id}>Take {t.seq} · {t.changeSummary}</option>)}</select></span>
                     </div>
                   )}
                   <a className="btn btn-small" href={api.downloadUrl(shown.id)} download data-testid="download" title={`Download take ${shown.seq} as WAV`}>
                     <Download size={12} strokeWidth={1.5} />
                     WAV
                   </a>
+                  {state.timeline && state.timeline.clips.length > 0 && (
+                    <a className="btn btn-small" href={api.mixUrl(projectId, shown.id)} download data-testid="download-mix" title={`Download take ${shown.seq} with the timeline's sounds mixed in`}>
+                      <Download size={12} strokeWidth={1.5} />
+                      Mix
+                    </a>
+                  )}
                 </div>
               </header>
 
               <Waveform
                 takeId={shown.id}
+                auditionRequest={auditionRequest}
                 songKey={current.rootTakeId}
                 selection={selection}
                 onSelection={setSelection}
                 markers={markers}
                 changedRange={!listenParent ? current.params.repaint : null}
                 heard={!listenParent ? heard : []}
+                onPlayer={setPlayer}
+                head={
+                  <>
+                    <AudioLines size={14} strokeWidth={1.5} />
+                    <span className="track-name">Song</span>
+                  </>
+                }
+                tracks={
+                  state.timeline && (
+                    <Timeline projectId={projectId} timeline={state.timeline} player={player} library={library} songKey={current.params.key} onError={setActionError} selection={selection} onSelect={setSelection} />
+                  )
+                }
                 selectionActions={
                   <button className="btn btn-small" onClick={saveMarker} data-testid="save-marker">
                     <Bookmark size={12} strokeWidth={1.5} />
@@ -297,7 +345,7 @@ export function ProjectView({ projectId, llm, onActivity }: Props) {
                 }
               />
 
-              <Lyrics take={shown} parent={shown === current ? parent : null} timing={shown === current ? timing : null} onSelectLine={setSelection} />
+              <LyricsEditor key={shown.id} projectId={projectId} take={shown} parent={shown === current ? parent : null} timing={shown === current ? timing : null} draft={shown === current ? state.lyricsDraft : null} selection={selection} readOnly={shown !== current} onSelectLine={setSelection} onError={setActionError} />
             </>
           ) : (
             <div className="stage-empty">
@@ -320,7 +368,7 @@ export function ProjectView({ projectId, llm, onActivity }: Props) {
             </div>
           )}
 
-          {details && <TakeDetails take={details} onClose={() => setDetailsId(null)} />}
+          {details && <TakeDetails key={details.id} take={details} projectId={projectId} onError={setActionError} onListen={(ranges) => { if (shown?.id !== details.id) { setListenParent(false); selectTake(details.id); } setAuditionRequest({ takeId: details.id, ranges }); }} onClose={() => setDetailsId(null)} />}
         </main>
 
         <Chat

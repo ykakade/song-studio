@@ -39,7 +39,7 @@ test("mcp: handshake, tool list, and the protocol edges", async () => {
 
     const list = await rpc(h.url, "tools/list");
     const names = list.body.result.tools.map((t: any) => t.name);
-    assert.deepEqual(names, ["list_projects", "create_project", "generate_song", "repaint_section", "get_project_state", "set_section_markers", "revert_to_take", "wait_for_job"]);
+    assert.deepEqual(names, ["list_projects", "create_project", "arrangement_history", "generate_song", "repaint_section", "get_project_state", "set_section_markers", "add_sound", "update_sound", "remove_sound", "set_track", "revert_to_take", "wait_for_job"]);
     const repaint = list.body.result.tools.find((t: any) => t.name === "repaint_section");
     assert.equal(repaint.inputSchema.required[0], "project_id");
     assert.ok(!JSON.stringify(list.body.result.tools).includes("<studio_state>"), "no references to the built-in chat's context block");

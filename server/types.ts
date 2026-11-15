@@ -63,6 +63,80 @@ export interface Marker {
   endSec: number;
 }
 
+// --- the timeline: sounds layered on top of the song --------------------------------------
+
+export type Instrument = "drums" | "percussion" | "bass" | "guitar" | "keys" | "pad" | "audio";
+
+/** One entry of the built-in sound library (server/sounds.ts). */
+export interface SoundInfo {
+  id: string;
+  name: string;
+  instrument: Instrument;
+  description: string;
+  /** A loop repeats to fill its clip; a one-shot plays once. */
+  loop: boolean;
+  /** Length of the loop in bars (0 for a one-shot). */
+  bars: number;
+  /** Pitched sounds are rendered in the song's key and hold its home chord. */
+  pitched: boolean;
+}
+
+/** Where the beats are in a song, measured from its first take's audio (server/beats.ts). */
+export interface BeatGrid {
+  bpm: number;
+  beatSec: number;
+  /** Time of the first beat; bars are counted from here. */
+  firstBeatSec: number;
+  beatsPerBar: number;
+  /** false: the beat could not be found in the audio, so this is the nominal tempo starting at 0. */
+  detected: boolean;
+  manual?: boolean;
+}
+
+export interface Track {
+  id: string;
+  name: string;
+  muted: boolean;
+  gainDb: number;
+}
+
+/** One sound on the timeline. Its audio is a WAV in the project's sounds/ folder. */
+export interface Clip {
+  id: string;
+  trackId: string;
+  /** Library sound id, or "import" for a file the person dropped in. */
+  sound: string;
+  name: string;
+  instrument: Instrument;
+  /** File name inside sounds/. */
+  file: string;
+  /** Length of that file. */
+  fileDurationSec: number;
+  loop: boolean;
+  startSec: number;
+  durationSec: number;
+  gainDb: number;
+}
+
+export interface ChordRegion extends Selection {
+  chord: string;
+}
+
+export interface JoinOptions {
+  crossfadeMs: number;
+  matchLevel: boolean;
+}
+
+export interface Timeline {
+  chords: ChordRegion[];
+  history: { canUndo: boolean; canRedo: boolean };
+  tracks: Track[];
+  clips: Clip[];
+  grid: BeatGrid;
+  /** Length of the song the clips sit on. */
+  durationSec: number;
+}
+
 // --- timing (produced by align.ts from a Whisper transcription) ---------------------------
 
 export interface HeardWord {
@@ -120,6 +194,7 @@ export interface TakeParams {
   seed: number;
   /** Present on repaint takes: the range that was regenerated. */
   repaint: Selection | null;
+  joins?: JoinOptions;
 }
 
 export type TakeStatus = "queued" | "running" | "done" | "failed";
@@ -234,6 +309,8 @@ export interface ProjectState {
   chatBusy: boolean;
   /** lyrics.md when it has been edited outside the studio and differs from the current take; else null. */
   lyricsDraft: string | null;
+  /** Sounds layered on the current song; null until there is a finished take. */
+  timeline: Timeline | null;
 }
 
 export interface Health {

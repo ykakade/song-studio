@@ -128,7 +128,7 @@ test("anthropic: a streamed turn with text and a tool call is assembled, and the
   assert.deepEqual(req.body.system, [{ type: "text", text: "SYSTEM PROMPT", cache_control: { type: "ephemeral" } }]);
   assert.deepEqual(req.body.output_config, { effort: "medium" });
   assert.deepEqual(req.body.messages, [{ role: "user", content: user.text }]);
-  assert.deepEqual(req.body.tools.map((t: any) => t.name), ["generate_song", "repaint_section", "get_project_state", "set_section_markers", "revert_to_take"]);
+  assert.deepEqual(req.body.tools.map((t: any) => t.name), ["arrangement_history", "generate_song", "repaint_section", "get_project_state", "set_section_markers", "add_sound", "update_sound", "remove_sound", "set_track", "revert_to_take"]);
   assert.equal(req.body.tools[0].input_schema.type, "object");
   // Nothing the current models reject:
   assert.equal(req.body.thinking, undefined);

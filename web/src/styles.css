@@ -929,6 +929,315 @@ svg.lucide {
   transition: opacity 200ms var(--ease);
 }
 
+/* --- timeline: the song and the sounds layered on it, on one time axis ----------------------- */
+
+.arrange {
+  --gutter: 112px;
+  display: grid;
+  grid-template-columns: var(--gutter) minmax(0, 1fr);
+}
+
+.track-head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding-right: 8px;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.track-head > svg {
+  color: var(--text-3);
+}
+
+.track-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tracks {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--line);
+}
+
+.track-rows {
+  position: relative;
+  max-height: 184px;
+  overflow-y: auto;
+}
+
+.track {
+  display: grid;
+  grid-template-columns: var(--gutter) minmax(0, 1fr);
+  height: 44px;
+  border-bottom: 1px solid var(--line);
+}
+
+.track-muted .lane {
+  opacity: 0.4;
+}
+
+.lane {
+  position: relative;
+  min-width: 0;
+  transition: background-color 140ms var(--ease);
+}
+
+.new-track-lane {
+  display: flex;
+  align-items: center;
+  padding-left: 8px;
+}
+
+.lane-drop {
+  background: rgba(237, 237, 237, 0.03);
+}
+
+/* Bar lines, the playhead and the drop position, over all lanes. */
+.lane-overlay {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--gutter);
+  right: 0;
+  z-index: 2;
+  pointer-events: none;
+  background-image: linear-gradient(to right, var(--line) 1px, transparent 1px);
+  background-repeat: repeat-x;
+}
+
+.playhead,
+.drop-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--accent);
+}
+
+.drop-line {
+  width: 2px;
+  margin-left: -1px;
+}
+
+.clip {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  min-width: 4px;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--raised);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  transition: border-color 140ms var(--ease);
+}
+
+.clip:hover {
+  border-color: rgba(237, 237, 237, 0.28);
+}
+
+.clip-selected,
+.clip-selected:hover {
+  border-color: var(--accent);
+}
+
+.clip-dragging {
+  z-index: 1;
+  cursor: grabbing;
+  opacity: 0.85;
+}
+
+.clip-wave {
+  position: absolute;
+  inset: 0;
+  display: flex;
+}
+
+.clip-wave > svg {
+  flex: none;
+  height: 100%;
+}
+
+.clip-wave > svg + svg {
+  box-shadow: -1px 0 0 var(--line-strong);
+}
+
+.clip-wave path {
+  fill: none;
+  stroke: #5a5a60;
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+}
+
+.clip-label {
+  position: absolute;
+  top: 2px;
+  left: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: calc(100% - 12px);
+  padding: 0 4px;
+  border-radius: 2px;
+  background: var(--raised);
+  color: var(--text-2);
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.clip-label > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.clip-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: ew-resize;
+}
+
+.clip-handle::after {
+  content: "";
+  position: absolute;
+  top: 8px;
+  right: 2px;
+  bottom: 8px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--line-strong);
+}
+
+.clip:hover .clip-handle::after,
+.clip-selected .clip-handle::after {
+  background: var(--text-3);
+}
+
+.track-foot {
+  height: 40px;
+  border-bottom: 0;
+}
+
+.track-tools {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.track-tools > .muted {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.clip-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.clip-name > svg {
+  color: var(--text-3);
+}
+
+.clip-name .mono {
+  font-size: 11px;
+}
+
+.volume {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-3);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.volume input[type="range"] {
+  width: 96px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--text-2);
+}
+
+.volume .mono {
+  width: 44px;
+}
+
+.sound-menu {
+  position: absolute;
+  top: calc(100% - 4px);
+  left: 0;
+  z-index: 10;
+  width: 240px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.sound-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sound-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 4px 0 8px;
+  border-radius: 6px;
+  cursor: grab;
+  transition: background-color 140ms var(--ease);
+}
+
+.sound-row:hover {
+  background: var(--surface);
+}
+
+.sound-menu .sound-row:hover {
+  background: var(--raised);
+}
+
+.sound-row > svg {
+  color: var(--text-3);
+}
+
+.sound-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sound-row .icon-btn {
+  width: 20px;
+  height: 20px;
+}
+
 .wave-loading {
   opacity: 0.35;
 }
@@ -1618,6 +1927,14 @@ button.lyric-time:hover {
 }
 
 @media (max-width: 720px) {
+  .arrange {
+    --gutter: 84px;
+  }
+
+  .volume input[type="range"] {
+    width: 64px;
+  }
+
   .workbench,
   .workbench.no-side {
     grid-template-columns: minmax(0, 1fr);
@@ -1645,4 +1962,91 @@ button.lyric-time:hover {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* Editing tools share the workbench's rules and surfaces, like an editor's
+   tabs, inline settings and source gutter. Amber belongs to playback/selection. */
+select { font: inherit; color: var(--text-2); background: var(--surface); border: 1px solid var(--line-strong); border-radius: 4px; min-height: 26px; padding: 3px 6px; max-width: 100%; }
+.icon-btn:disabled, .btn:disabled { opacity: .35; cursor: default; }
+.icon-btn[aria-pressed="true"] { color: var(--text); background: var(--raised); }
+.ab select { width: 26px; padding: 2px; border: 0; background: transparent; color: var(--text-2); }
+.editor-actions { flex-wrap: wrap; justify-content: flex-end; }
+.transport { flex-wrap: wrap; row-gap: 8px; height: auto; min-height: 52px; padding: 10px 0; }
+.selection-readout { flex-wrap: wrap; row-gap: 8px; }
+.preroll select { font-size: 11px; border-color: transparent; background: transparent; }
+.music-settings { border-top: 1px solid var(--line); background: var(--bg); }
+.music-settings > summary { display: flex; align-items: center; gap: 8px; padding: 9px 12px; cursor: pointer; color: var(--text-2); font-size: 12px; list-style: none; }
+.music-settings > summary::-webkit-details-marker { display: none; }
+.music-settings > summary > .muted { margin-left: auto; font-size: 11px; }
+.music-settings[open] > summary > svg { transform: rotate(90deg); }
+.music-form { padding: 4px 16px 16px; display: grid; gap: 12px; }
+.music-fields { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 16px; }
+.music-fields > label { display: grid; gap: 4px; color: var(--text-2); font-size: 12px; }
+.music-form input, .join-controls input[type=number] { background: var(--bg-deep); border: 1px solid var(--line-strong); border-radius: 4px; padding: 4px 8px; height: 28px; color: var(--text); font: 12px/18px var(--mono); }
+.music-fields input { width: 84px; }
+.chord-table { display: grid; gap: 6px; max-width: 390px; }
+.chord-row { display: grid; grid-template-columns: 90px 90px 90px 28px; gap: 8px; align-items: center; }
+.chord-row input { width: 100%; min-width: 0; }
+.chord-heading { font-size: 11px; color: var(--text-3); }
+.setting-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.setting-actions .btn { white-space: nowrap; }
+.lyrics-document { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.doc-actions { display: flex; gap: 12px; align-items: center; }
+.lyric-editor .doc-tabs { gap: 12px; min-height: 40px; padding-right: 12px; }
+.draft-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-2); margin-left: 2px; }
+.lyric-source { display: flex; background: var(--bg); padding: 16px 16px 16px 0; overflow: auto; max-height: 460px; }
+.line-numbers { flex: none; padding-right: 12px; min-width: 48px; text-align: right; user-select: none; color: var(--text-3); font: 12px/26px var(--mono); }
+.line-numbers > div { border-left: 2px solid transparent; }
+.line-numbers .line-edited { border-left-color: var(--ok); color: var(--text-2); }
+.lyric-source textarea { resize: none; flex: 1; min-width: 200px; background: transparent; border: 0; border-radius: 0; outline: none; padding: 0; font: 13px/26px var(--mono); white-space: pre; overflow-wrap: normal; overflow: visible; }
+.lyric-editor-footer { border-top: 1px solid var(--line); padding: 10px 12px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.word-budget { min-width: 90px; color: var(--text-3); font: 11px/16px var(--mono); display: grid; gap: 4px; }
+.word-budget meter { width: 100%; height: 3px; appearance: none; border: 0; background: var(--raised); }
+.word-budget meter::-webkit-meter-bar { background: var(--raised); border: 0; height: 3px; }
+.word-budget meter::-webkit-meter-optimum-value { background: var(--text-3); }
+.word-budget.over-budget { color: var(--bad); }
+.word-budget.over-budget meter::-webkit-meter-optimum-value { background: var(--bad); }
+.draft-hint { padding: 0 12px 12px; }
+.join-controls { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); display: grid; gap: 12px; }
+.join-title { display: flex; align-items: baseline; gap: 12px; font-weight: 500; }
+.join-controls label { display: flex; align-items: center; gap: 8px; color: var(--text-2); font-size: 12px; }
+.join-controls input[type=number] { width: 72px; }
+.check-label input { accent-color: var(--text-2); }
+.track-tools { flex-wrap: wrap; min-height: 44px; padding-top: 6px; padding-bottom: 6px; }
+@media (max-width: 720px) {
+  .chord-row { grid-template-columns: minmax(58px, 1fr) minmax(58px, 1fr) minmax(58px, 1fr) 24px; }
+  .editor-head { flex-wrap: wrap; gap: 12px; }
+  .editor-actions { justify-content: flex-start; }
+  .lyric-editor-footer .spacer, .setting-actions .spacer { display: none; }
+  .join-title { flex-wrap: wrap; gap: 4px; }
+}
+.chord-strip { min-height: 26px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.chord-strip .track-head { min-height: 26px; }
+.chord-lane { position: relative; min-width: 0; height: 26px; }
+.chord-region { position: absolute; inset-block: 3px; padding: 0 6px; border-left: 1px solid var(--line-strong); font: 11px/20px var(--mono); color: var(--text-2); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.chord-region:hover { background: var(--raised); color: var(--text); }
+.comparison-picker { position: relative; display: flex; align-items: center; justify-content: center; width: 22px; height: 24px; color: var(--text-3); }
+.comparison-picker select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.comparison-picker:focus-within { outline: 1px solid var(--accent); border-radius: 3px; }
+.lyric-editor { display: flex; flex-direction: column; overflow: hidden; }
+.lyric-editor > .doc-tabs, .lyric-editor-footer, .draft-hint { flex: none; }
+.lyric-editor .lyric-source { flex: 1; min-height: 80px; }
+.lyric-editor .lyric-source textarea { flex-shrink: 0; }
+.chord-strip { height: 28px; }
+.track-foot { height: auto; min-height: 44px; }
+@media (max-width: 720px) {
+  .workbench, .workbench.no-side { display: flex; flex-direction: column; overflow-y: auto; }
+  .workbench > .editor { flex: none; min-height: 820px; }
+  .workbench > .chat { flex: none; min-height: 400px; height: 50vh; }
+  .waveform { padding-inline: 16px; }
+  .editor-head { padding-inline: 16px; }
+  .editor-actions { max-width: 100%; }
+  .selection-readout { flex-basis: 100%; }
+  .doc-tabs { padding-inline: 16px; }
+  .doc-actions > .mono { display: none; }
+  .lyric-editor-footer { gap: 8px; }
+  .lyric-editor .lyric-source { max-height: 320px; }
+  .bottom-panel { max-height: 360px; }
+  .check-details dl { grid-template-columns: 100px minmax(0, 1fr); gap: 4px 12px; }
+  .bottom-body { padding-inline: 16px; overflow-x: auto; }
 }

@@ -82,6 +82,8 @@ function lastUser(messages: LlmMessage[]): string {
 
 type Intent =
   | { kind: "generate" }
+  | { kind: "add_sound"; sound: string; range: { start: number; end: number } | null }
+  | { kind: "remove_sound"; instrument: string }
   | { kind: "markers"; label: string; start: number; end: number }
   | { kind: "revert" }
   | { kind: "edit"; range: { source: "selection" | "marker" | "user_stated"; start: number; end: number; label?: string } }
@@ -89,6 +91,21 @@ type Intent =
   | { kind: "chat" };
 
 const EDIT_WORDS = /\b(change|rewrite|redo|repaint|replace|make|turn|fix|swap|remove|add|different|new lyrics|solo|instrumental)\b/i;
+
+/** Words that name a library sound, most specific first. */
+const SOUND_WORDS: Array<[RegExp, string]> = [
+  [/four[ -]on[ -]the[ -]floor|dance beat/i, "drums.four-on-the-floor"],
+  [/half[ -]?time/i, "drums.half-time"],
+  [/\b(drums?|drum (?:sound|beat|loop)|beat)\b/i, "drums.backbeat"],
+  [/\bshakers?\b/i, "percussion.shaker"],
+  [/\bclaps?\b/i, "percussion.claps"],
+  [/\b(crash|cymbal)\b/i, "percussion.crash"],
+  [/\bbass\b/i, "bass.pulse"],
+  [/\bpicked\b/i, "guitar.picked"],
+  [/\bguitars?\b/i, "guitar.strum"],
+  [/\b(piano|keys|keyboard)\b/i, "keys.piano"],
+  [/\b(pad|strings)\b/i, "keys.pad"],
+];
 
 function classify(text: string): Intent {
   const ctx = parseStudioContext(text);
@@ -99,6 +116,15 @@ function classify(text: string): Intent {
   if (marker && ctx.currentTakeId) return { kind: "markers", label: marker[1].trim(), start: Number(marker[2]), end: Number(marker[3]) };
 
   if (/\b(revert|go back|undo|previous take)\b/i.test(words) && ctx.currentTakeId) return { kind: "revert" };
+
+  // Layered sounds: "add drums", "put a shaker on the part I selected", "remove the drums".
+  const sound = SOUND_WORDS.find(([re]) => re.test(words))?.[1];
+  if (sound && ctx.currentTakeId && !/\b(solo|new song|start over|from scratch|another song)\b/i.test(words)) {
+    if (/\b(remove|delete|take (?:off|out|away)|get rid of)\b/i.test(words)) return { kind: "remove_sound", instrument: sound.split(".")[0] };
+    if (/\b(add|put|layer|drop|give)\b/i.test(words)) {
+      return { kind: "add_sound", sound, range: ctx.selection ?? (range ? { start: Number(range[1]), end: Number(range[2]) } : null) };
+    }
+  }
   if (!ctx.currentTakeId || /\b(new song|start over|from scratch|another song)\b/i.test(words)) {
     return /\b(song|track|tune|write|make|generate|compose|create)\b/i.test(words) ? { kind: "generate" } : { kind: "chat" };
   }
@@ -198,6 +224,12 @@ function decide(req: LlmTurnRequest): FakeTurn {
           ],
         };
       }
+      if (intent.kind === "remove_sound") {
+        const clips: any[] = (data.timeline?.tracks ?? []).flatMap((t: any) => t.clips ?? []);
+        const clip = clips.find((c) => String(c.sound).startsWith(intent.instrument));
+        if (!clip) return { text: `There is no ${intent.instrument} sound on the timeline.` };
+        return { toolCalls: [{ name: "remove_sound", input: { clip_id: clip.clip_id } }] };
+      }
       if (intent.kind === "revert") {
         const takes: any[] = data.takes ?? [];
         const byId = /\b(t_[0-9a-f]+)\b/.exec(words)?.[1];
@@ -217,6 +249,13 @@ function decide(req: LlmTurnRequest): FakeTurn {
         text: `I've started a new take that changes only ${Number(i.start_seconds).toFixed(1)}–${Number(i.end_seconds).toFixed(1)} s. Everything outside that range stays exactly as it is. About a minute.`,
       };
     }
+    if (call.name === "add_sound") {
+      const c = data.clip ?? {};
+      return {
+        text: `Added ${c.sound} on the “${c.track}” track, ${Number(c.start_seconds).toFixed(1)}–${Number(c.end_seconds).toFixed(1)} s. It plays with the song now; drag the clip on the timeline to move it.`,
+      };
+    }
+    if (call.name === "remove_sound") return { text: "Removed it from the timeline. The song itself is unchanged." };
     if (call.name === "set_section_markers") {
       const list = (data.section_markers ?? []).map((m: any) => `${m.label} ${m.start_seconds}–${m.end_seconds} s`).join(", ");
       return { text: `Saved. Markers now: ${list || "none"}.` };
@@ -228,9 +267,16 @@ function decide(req: LlmTurnRequest): FakeTurn {
   switch (intent.kind) {
     case "generate":
       return { toolCalls: [{ name: "generate_song", input: demoSong(words) }] };
+    case "add_sound":
+      return {
+        toolCalls: [
+          { name: "add_sound", input: { sound: intent.sound, ...(intent.range ? { start_seconds: intent.range.start, end_seconds: intent.range.end } : {}) } },
+        ],
+      };
     case "edit":
     case "markers":
     case "revert":
+    case "remove_sound":
       return { toolCalls: [{ name: "get_project_state", input: {} }] };
     case "edit_needs_range":
       return {
@@ -238,7 +284,7 @@ function decide(req: LlmTurnRequest): FakeTurn {
       };
     default:
       return {
-        text: "I'm the scripted demo assistant (no real language model is connected). Try: “write a 30 second folk song about paper boats”, then select a range on the waveform and say “rewrite the lyrics in the part I selected”.",
+        text: "I'm the scripted demo assistant (no real language model is connected). Try: “write a 30 second folk song about paper boats”, then select a range on the waveform and say “rewrite the lyrics in the part I selected”, or “add drums”.",
       };
   }
 }
