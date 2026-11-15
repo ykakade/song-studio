@@ -501,4 +501,6 @@ the splice check (start the model server first; about three minutes).
 - The interface follows the [unslop](https://github.com/heydamir/unslop) rules by Damir Sokolovsky (CC BY 4.0), uses [Geist](https://vercel.com/font), [lucide](https://lucide.dev) icons and [wavesurfer.js](https://wavesurfer.xyz).
 - The dithered illustrations in `web/public/art/` were generated with an image model and dithered with `web/art-src/dither.py`.
 
-No license has been chosen for this repository yet.
+## License
+
+[MIT](LICENSE)
