@@ -1,0 +1,151 @@
+{
+ "source": "Whisper large-v3-turbo (MLX) on a 30 s ACE-Step take made before the lyric-clarity fixes, 2026-11-14",
+ "durationSec": 30,
+ "lyrics": "[verse]\nRain on the rooftops, rain on the street\nFolded-up paper beneath my feet\nLittle white boats in the gutter stream\nSailing away like a quiet dream\n\n[chorus]\nFloat on, paper boats, down to the sea\nCarry my wishes over the waves for me\nFloat on, paper boats, till the clouds go by\nHold on to the water, hold on to the sky",
+ "words": [
+  {
+   "w": "When",
+   "t0": 0,
+   "t1": 1.54,
+   "p": 0.54
+  },
+  {
+   "w": "the",
+   "t0": 1.54,
+   "t1": 1.86,
+   "p": 0.435
+  },
+  {
+   "w": "rooftops",
+   "t0": 1.86,
+   "t1": 2.68,
+   "p": 0.755
+  },
+  {
+   "w": "rain",
+   "t0": 2.68,
+   "t1": 3.56,
+   "p": 0.858
+  },
+  {
+   "w": "on",
+   "t0": 3.56,
+   "t1": 3.98,
+   "p": 0.99
+  },
+  {
+   "w": "the",
+   "t0": 3.98,
+   "t1": 4.16,
+   "p": 0.98
+  },
+  {
+   "w": "street",
+   "t0": 4.16,
+   "t1": 4.64,
+   "p": 0.881
+  },
+  {
+   "w": "Underneath",
+   "t0": 7.86,
+   "t1": 9,
+   "p": 0.681
+  },
+  {
+   "w": "my",
+   "t0": 9,
+   "t1": 9.4,
+   "p": 0.998
+  },
+  {
+   "w": "feet",
+   "t0": 9.4,
+   "t1": 9.92,
+   "p": 0.884
+  },
+  {
+   "w": "Little",
+   "t0": 9.92,
+   "t1": 11.5,
+   "p": 0.968
+  },
+  {
+   "w": "white",
+   "t0": 11.5,
+   "t1": 12.04,
+   "p": 0.995
+  },
+  {
+   "w": "boats",
+   "t0": 12.04,
+   "t1": 12.88,
+   "p": 0.551
+  },
+  {
+   "w": "in",
+   "t0": 12.88,
+   "t1": 14.06,
+   "p": 0.828
+  },
+  {
+   "w": "the",
+   "t0": 14.06,
+   "t1": 14.24,
+   "p": 0.985
+  },
+  {
+   "w": "gutter",
+   "t0": 14.24,
+   "t1": 14.74,
+   "p": 0.754
+  },
+  {
+   "w": "stream",
+   "t0": 14.74,
+   "t1": 15.44,
+   "p": 0.399
+  },
+  {
+   "w": "Sailing",
+   "t0": 15.44,
+   "t1": 17.24,
+   "p": 0.934
+  },
+  {
+   "w": "away",
+   "t0": 17.24,
+   "t1": 18.06,
+   "p": 0.997
+  },
+  {
+   "w": "like",
+   "t0": 18.06,
+   "t1": 19.08,
+   "p": 0.74
+  },
+  {
+   "w": "you're",
+   "t0": 19.08,
+   "t1": 19.24,
+   "p": 0.642
+  },
+  {
+   "w": "quite",
+   "t0": 19.24,
+   "t1": 19.56,
+   "p": 0.532
+  },
+  {
+   "w": "my",
+   "t0": 19.56,
+   "t1": 19.96,
+   "p": 0.927
+  },
+  {
+   "w": "feet",
+   "t0": 19.96,
+   "t1": 20.56,
+   "p": 0.951
+  }
+ ]
+}

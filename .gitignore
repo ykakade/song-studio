@@ -1,0 +1,12 @@
+node_modules/
+dist/
+data/
+.env
+*.log
+test-results/
+.DS_Store
+
+# agent skills installed locally (not part of the app)
+.agents/
+.claude/
+skills-lock.json

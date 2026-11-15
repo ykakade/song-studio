@@ -1,0 +1,71 @@
+{
+  "id": "t_17cae4",
+  "seq": 3,
+  "parentTakeId": "t_106e94",
+  "rootTakeId": "t_106e94",
+  "kind": "repaint",
+  "status": "done",
+  "params": {
+    "title": "Night Bus Home",
+    "stylePrompt": "warm indie folk, fingerpicked acoustic guitar, soft brushed drums, clear close upfront lead vocal, crisp diction, gentle and tired but hopeful mood, sparse arrangement, dry and intimate; for this section only: instrumental only, solo fingerpicked acoustic guitar, no vocals, no singing, no drums",
+    "lyrics": "[verse]\nStreetlights slide across my tired hands\nThe night bus hums me home\n\n[chorus]\nTake me home, take me slow\nWindows glowing in the rain\n\n[guitar solo]\n\n[chorus]\nTake me home, take me slow\nWindows glowing in the rain",
+    "bpm": 96,
+    "key": "G Major",
+    "timeSignature": "4",
+    "vocalLanguage": "en",
+    "durationSec": 45,
+    "seed": 1142928021,
+    "repaint": {
+      "startSec": 20.49,
+      "endSec": 28.46
+    }
+  },
+  "changeSummary": "Verse 2 as instrumental fingerpicked guitar solo (retry from take 1)",
+  "durationSec": 45,
+  "sampleRate": 48000,
+  "checks": {
+    "startSec": 20.49,
+    "endSec": 28.46,
+    "startFrame": 983520,
+    "endFrame": 1366080,
+    "crossfadeMs": 50,
+    "gain": 0.91407,
+    "gainDb": -0.78,
+    "correlation": 0.9999999942,
+    "residualLsb": 1.02,
+    "appliedGain": 1.094008,
+    "gainLimitedToAvoidClipping": false,
+    "outsideSamples": 3554880,
+    "outsideMismatches": 0,
+    "bitIdenticalOutside": true,
+    "boundaries": [
+      {
+        "edge": "start",
+        "timeSec": 20.49,
+        "keptDb": -23.09,
+        "newDb": -16,
+        "stepDb": 7.08,
+        "parentStepDb": 5.63,
+        "dipDb": -4.21,
+        "parentDipDb": -8.32
+      },
+      {
+        "edge": "end",
+        "timeSec": 28.46,
+        "keptDb": -16.62,
+        "newDb": -16.19,
+        "stepDb": 0.43,
+        "parentStepDb": -0.92,
+        "dipDb": -5.47,
+        "parentDipDb": -4.54
+      }
+    ],
+    "status": "verified",
+    "reason": null
+  },
+  "error": null,
+  "jobId": "j_33a909c9",
+  "createdAt": 1794764018104,
+  "finishedAt": 1794764080392,
+  "audio": "take-003.wav"
+}

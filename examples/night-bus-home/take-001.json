@@ -1,0 +1,29 @@
+{
+  "id": "t_106e94",
+  "seq": 1,
+  "parentTakeId": null,
+  "rootTakeId": "t_106e94",
+  "kind": "generate",
+  "status": "done",
+  "params": {
+    "title": "Night Bus Home",
+    "stylePrompt": "warm indie folk, fingerpicked acoustic guitar, soft brushed drums, clear close upfront lead vocal, crisp diction, gentle and tired but hopeful mood, sparse arrangement, dry and intimate",
+    "lyrics": "[verse]\nStreetlights slide across my tired hands\nThe night bus hums me home\n\n[chorus]\nTake me home, take me slow\nWindows glowing in the rain\n\n[verse]\nDriver nods and I nod back\nQuiet faces, one long road\n\n[chorus]\nTake me home, take me slow\nWindows glowing in the rain",
+    "bpm": 96,
+    "key": "G Major",
+    "timeSignature": "4",
+    "vocalLanguage": "en",
+    "durationSec": 45,
+    "seed": 2079339175,
+    "repaint": null
+  },
+  "changeSummary": "New song: Night Bus Home",
+  "durationSec": 45,
+  "sampleRate": 48000,
+  "checks": null,
+  "error": null,
+  "jobId": "j_99f74728",
+  "createdAt": 1794763537743,
+  "finishedAt": 1794763621553,
+  "audio": "take-001.wav"
+}
